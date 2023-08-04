@@ -825,7 +825,7 @@ SplitRequestPtr InstanceImpl::makeRequest(Common::Redis::RespValuePtr&& request,
     // Respond to PING locally.
     Common::Redis::RespValuePtr pong(new Common::Redis::RespValue());
     pong->type(Common::Redis::RespType::SimpleString);
-    pong->asString() = "LONG";
+    pong->asString() = "PONG";
     callbacks.onResponse(std::move(pong));
     return nullptr;
   }
