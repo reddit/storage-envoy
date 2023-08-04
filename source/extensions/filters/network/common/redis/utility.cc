@@ -83,6 +83,28 @@ const SetRequest& SetRequest::instance() {
   static const SetRequest* instance = new SetRequest{};
   return *instance;
 }
+
+// TODO: Change this to work with just info command -see how the AuthRequest is implemented above
+InfoRequest::InfoRequest() {
+  type(RespType::BulkString);
+  asString() = "info";
+}
+
+const InfoRequest& InfoRequest::instance() {
+  static const InfoRequest* instance = new InfoRequest{};
+  return *instance;
+}
+
+ClusterRequest::ClusterRequest() {
+  type(RespType::BulkString);
+  asString() = "cluster";
+}
+
+const ClusterRequest& ClusterRequest::instance() {
+  static const ClusterRequest* instance = new ClusterRequest{};
+  return *instance;
+}
+
 } // namespace Utility
 } // namespace Redis
 } // namespace Common
