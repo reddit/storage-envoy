@@ -1,8 +1,14 @@
 #include "source/extensions/filters/network/redis_proxy/command_splitter_impl.h"
 
+#include "source/common/common/utility.h"
 #include "source/common/common/logger.h"
 #include "source/extensions/filters/network/common/redis/supported_commands.h"
 #include "source/common/api/os_sys_calls_impl.h"
+#include "absl/strings/match.h"
+#include "absl/strings/str_join.h"
+#include "absl/strings/str_split.h"
+#include <iostream>
+#include <string>
 
 namespace Envoy {
 namespace Extensions {
@@ -307,6 +313,7 @@ void MGETRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32_t 
   }
 }
 
+// NEW CODE START
 SplitRequestPtr InfoRequest::create(Router& router, Common::Redis::RespValuePtr&& incoming_request,
                                     SplitCallbacks& callbacks, CommandStats& command_stats,
                                     TimeSource& time_source, bool delay_command_latency) {
@@ -490,7 +497,31 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
     FALLTHRU;
   }
   case Common::Redis::RespType::BulkString: {
-    pending_response_->asArray()[index].asString().swap(value->asString());
+     Common::Redis::RespValue valid_ip;
+     Common::Redis::RespValue valid_port;
+     Common::Redis::RespValue result;
+     getIPAndPort(valid_ip, valid_port);
+     const auto lines  = StringUtil::splitToken(value->asString(), "\n");
+     unsigned long word = 0;
+     std::string str;
+     for (const auto& line : lines) {
+          const auto toks = StringUtil::splitToken(line, " ");
+            for (const auto& tok : toks){
+                if(word == 1){
+                    str.append(valid_ip.asString());
+                    str.append(":9091@16379");
+                }else {
+                    str.append(tok);
+                }
+                if(word != toks.size()-1){
+                    str.append(" ");
+                }
+                word++;
+          }
+          str.append("\n");
+          word = 0;
+     }
+    pending_response_->asArray()[index].asString().swap(str);
     break;
   }
   case Common::Redis::RespType::Null: {
@@ -505,7 +536,7 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
     callbacks_.onResponse(std::move(pending_response_));
   }
 }
-
+//NEW CODE END
 
 SplitRequestPtr MSETRequest::create(Router& router, Common::Redis::RespValuePtr&& incoming_request,
                                     SplitCallbacks& callbacks, CommandStats& command_stats,
@@ -770,13 +801,14 @@ InstanceImpl::InstanceImpl(RouterPtr&& router, Stats::Scope& scope, const std::s
 
   addHandler(scope, stat_prefix, Common::Redis::SupportedCommands::mget(), latency_in_micros,
              mget_handler_);
-  
+
+ //NEW CODE START
   addHandler(scope, stat_prefix, Common::Redis::SupportedCommands::info(), latency_in_micros,
      info_handler_);
 
   addHandler(scope, stat_prefix, Common::Redis::SupportedCommands::cluster(), latency_in_micros,
     cluster_handler_);
-
+//NEW CODE END
   addHandler(scope, stat_prefix, Common::Redis::SupportedCommands::mset(), latency_in_micros,
              mset_handler_);
 
