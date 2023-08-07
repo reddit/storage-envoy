@@ -313,7 +313,6 @@ void MGETRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32_t 
   }
 }
 
-// NEW CODE START
 SplitRequestPtr InfoRequest::create(Router& router, Common::Redis::RespValuePtr&& incoming_request,
                                     SplitCallbacks& callbacks, CommandStats& command_stats,
                                     TimeSource& time_source, bool delay_command_latency) {
@@ -444,18 +443,15 @@ void getIPAndPort(Common::Redis::RespValue &valid_ip, Common::Redis::RespValue &
     for (auto &ia : interface_addresses) {
       // TODO: This is suspect -narrows to an interface and INET4
       if(strcmp(ia.interface_name_.c_str(),"en0") == 0 && ia.interface_addr_->sockAddr()->sa_family == AF_INET ){
-        //ENVOY_LOG(debug, "Address: {} {} {}" , ia.interface_addr_.get()->asString(), ia.interface_name_,ia.interface_flags_);
         struct sockaddr_in sa;
         // TODO: Check the error status and return val
         inet_pton(AF_INET, ia.interface_addr_.get()->asString().c_str(), &(sa.sin_addr));
         if(ia.interface_addr_->ip()->isUnicastAddress()){
-          //ENVOY_LOG(debug, "Valid IP {} {} {} {} {} {}",
-          //ia.interface_addr_.get()->asString(), result, ia.interface_addr_->addressType(), ia.interface_addr_->ip()->addressAsString(), ia.interface_addr_->ip()->isUnicastAddress(),
-          //ia.interface_addr_->sockAddr()->sa_family);
           valid_ip.asString() = ia.interface_addr_->ip()->addressAsString();
         }
       }
-      valid_port.asInteger() = 9091;     
+      //TODO: The port is provided by the listener -no way atm to expose it here
+      valid_port.asInteger() = 9091;
     }
 }
 
@@ -476,11 +472,9 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
      Common::Redis::RespValue ipaddr;
      makeArray(ipaddr,{valid_ip, valid_port, v.asArray()[2].asArray()[2]});
      items[i].asArray() = {v.asArray()[0], v.asArray()[1], ipaddr}; 
-     ENVOY_LOG(debug, "test {}", v.asArray()[2].asArray()[0].toString());
      i++;
    }
     makeArray(result,items);
-    //ENVOY_LOG(debug,"--> {} {}", (value->asArray()[0]).toString(), ((value->asArray()[0]).asArray()[2]).asArray()[0].toString());
     pending_response_->asArray().swap(result.asArray());
     break;
   }
@@ -509,6 +503,9 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
             for (const auto& tok : toks){
                 if(word == 1){
                     str.append(valid_ip.asString());
+                    //TODO:The ports are hardcoded; the cluster port is not relevant, but
+                    //the 9091 port is from listener and at the moment there is no way
+                    // to provide that here
                     str.append(":9091@16379");
                 }else {
                     str.append(tok);
@@ -521,6 +518,7 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
           str.append("\n");
           word = 0;
      }
+    //TODO: This changes from BulkString to String -don't know if this will cause any issues
     pending_response_->asArray()[index].asString().swap(str);
     break;
   }
@@ -536,7 +534,6 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
     callbacks_.onResponse(std::move(pending_response_));
   }
 }
-//NEW CODE END
 
 SplitRequestPtr MSETRequest::create(Router& router, Common::Redis::RespValuePtr&& incoming_request,
                                     SplitCallbacks& callbacks, CommandStats& command_stats,
@@ -802,13 +799,12 @@ InstanceImpl::InstanceImpl(RouterPtr&& router, Stats::Scope& scope, const std::s
   addHandler(scope, stat_prefix, Common::Redis::SupportedCommands::mget(), latency_in_micros,
              mget_handler_);
 
- //NEW CODE START
   addHandler(scope, stat_prefix, Common::Redis::SupportedCommands::info(), latency_in_micros,
      info_handler_);
 
   addHandler(scope, stat_prefix, Common::Redis::SupportedCommands::cluster(), latency_in_micros,
     cluster_handler_);
-//NEW CODE END
+
   addHandler(scope, stat_prefix, Common::Redis::SupportedCommands::mset(), latency_in_micros,
              mset_handler_);
 
