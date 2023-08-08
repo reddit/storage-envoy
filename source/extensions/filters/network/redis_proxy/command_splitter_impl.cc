@@ -457,10 +457,13 @@ void getIPAndPort(Common::Redis::RespValue &valid_ip, Common::Redis::RespValue &
 
 void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32_t index) {
   pending_requests_[index].handle_ = nullptr;
+  ENVOY_LOG(debug, "pending responeses count:{} ", num_pending_responses_);
+
 
   pending_response_->asArray()[index].type(value->type());
   switch (value->type()) {
   case Common::Redis::RespType::Array: {
+  // cluster slots
    Common::Redis::RespValue valid_ip;
    Common::Redis::RespValue valid_port;
    Common::Redis::RespValue result;
@@ -470,11 +473,19 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
    for( auto &v: value->asArray()){
      items[i].type(Common::Redis::RespType::Array);
      Common::Redis::RespValue ipaddr;
-     makeArray(ipaddr,{valid_ip, valid_port, v.asArray()[2].asArray()[2]});
+     ipaddr.type(Common::Redis::RespType::BulkString);
+     for (auto &c:  v.asArray()[2].asArray()){
+        if ((c.type() == Common::Redis::RespType::BulkString) || (c.type() == Common::Redis::RespType::SimpleString) ){
+            ENVOY_LOG(debug, "sub array {} type {}", c.asString(), (c.type() == Common::Redis::RespType::BulkString));
+            ENVOY_LOG(debug, "bulk string {}", c.toString());
+        }
+     }
+     makeArray(ipaddr,{ipaddr, v.asArray()[2].asArray()[1], v.asArray()[2].asArray()[2], v.asArray()[2].asArray()[3]});
      items[i].asArray() = {v.asArray()[0], v.asArray()[1], ipaddr}; 
      i++;
    }
     makeArray(result,items);
+    //ENVOY_LOG(debug,"--> {} {}", (value->asArray()[0]).toString(), ((value->asArray()[0]).asArray()[2]).asArray()[0].toString());
     pending_response_->asArray().swap(result.asArray());
     break;
   }
@@ -491,10 +502,13 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
     FALLTHRU;
   }
   case Common::Redis::RespType::BulkString: {
+  // cluster nodes
      Common::Redis::RespValue valid_ip;
      Common::Redis::RespValue valid_port;
      Common::Redis::RespValue result;
+     result.type(Common::Redis::RespType::BulkString);
      getIPAndPort(valid_ip, valid_port);
+     ENVOY_LOG(debug, "from the cluster: {}", value->asString());
      const auto lines  = StringUtil::splitToken(value->asString(), "\n");
      unsigned long word = 0;
      std::string str;
@@ -515,13 +529,18 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
                 }
                 word++;
           }
-          str.append("\n");
           word = 0;
      }
-    pending_response_->asArray()[index].type(Common::Redis::RespType::BulkString);
-    pending_response_->asArray()[index].asString()=str;
+    result.asString().swap(str);
+    pending_response_->asArray()[index] = result;
     break;
   }
+
+//    case Common::Redis::RespType::BulkString: {
+//        ENVOY_LOG(debug, "HERE");
+//      //pending_response_->asArray()[index].swap(value);
+//      break;
+//    }
   case Common::Redis::RespType::Null: {
     break;
   }
