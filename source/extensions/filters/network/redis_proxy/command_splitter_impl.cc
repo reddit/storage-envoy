@@ -518,8 +518,8 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
           str.append("\n");
           word = 0;
      }
-    //TODO: This changes from BulkString to String -don't know if this will cause any issues
-    pending_response_->asArray()[index].asString().swap(str);
+    pending_response_->asArray()[index].type(Common::Redis::RespType::BulkString);
+    pending_response_->asArray()[index].asString()=str;
     break;
   }
   case Common::Redis::RespType::Null: {
