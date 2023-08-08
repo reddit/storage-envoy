@@ -474,13 +474,7 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
      items[i].type(Common::Redis::RespType::Array);
      Common::Redis::RespValue ipaddr;
      ipaddr.type(Common::Redis::RespType::BulkString);
-     for (auto &c:  v.asArray()[2].asArray()){
-        if ((c.type() == Common::Redis::RespType::BulkString) || (c.type() == Common::Redis::RespType::SimpleString) ){
-            ENVOY_LOG(debug, "sub array {} type {}", c.asString(), (c.type() == Common::Redis::RespType::BulkString));
-            ENVOY_LOG(debug, "bulk string {}", c.toString());
-        }
-     }
-     makeArray(ipaddr,{ipaddr, v.asArray()[2].asArray()[1], v.asArray()[2].asArray()[2], v.asArray()[2].asArray()[3]});
+     makeArray(ipaddr,{valid_ip, valid_port, v.asArray()[2].asArray()[2], v.asArray()[2].asArray()[3]});
      items[i].asArray() = {v.asArray()[0], v.asArray()[1], ipaddr}; 
      i++;
    }
