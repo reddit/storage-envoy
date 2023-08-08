@@ -527,6 +527,7 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
                 }
                 word++;
           }
+          str.append("\n");
           word = 0;
      }
     result.asString().swap(str);
