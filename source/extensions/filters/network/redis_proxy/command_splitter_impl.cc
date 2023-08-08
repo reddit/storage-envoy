@@ -434,7 +434,7 @@ SplitRequestPtr ClusterRequest::create(Router& router, Common::Redis::RespValueP
     value.asArray().insert(value.asArray().end(), items.begin(), items.end());
   }
 
-void getIPAndPort(Common::Redis::RespValue &valid_ip, Common::Redis::RespValue &valid_port){
+void getIPAndPort(Common::Redis::RespValue &valid_ip, Common::Redis::RespValue &valid_port, bool applyQuote){
    valid_ip.type(Common::Redis::RespType::SimpleString);
    valid_port.type(Common::Redis::RespType::Integer);
       // Get the IP address and port that envoy is listening on
@@ -447,7 +447,11 @@ void getIPAndPort(Common::Redis::RespValue &valid_ip, Common::Redis::RespValue &
         // TODO: Check the error status and return val
         inet_pton(AF_INET, ia.interface_addr_.get()->asString().c_str(), &(sa.sin_addr));
         if(ia.interface_addr_->ip()->isUnicastAddress()){
+        if(applyQuote){
+          valid_ip.asString() = "\""+ia.interface_addr_->ip()->addressAsString() +"\"";
+        }else{
           valid_ip.asString() = ia.interface_addr_->ip()->addressAsString();
+         }
         }
       }
       //TODO: The port is provided by the listener -no way atm to expose it here
@@ -467,7 +471,7 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
    Common::Redis::RespValue valid_ip;
    Common::Redis::RespValue valid_port;
    Common::Redis::RespValue result;
-   getIPAndPort(valid_ip, valid_port);
+   getIPAndPort(valid_ip, valid_port, true);
    std::vector<Common::Redis::RespValue> items(value->asArray().size());
    int i = 0;
    for( auto &v: value->asArray()){
@@ -501,7 +505,7 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
      Common::Redis::RespValue valid_port;
      Common::Redis::RespValue result;
      result.type(Common::Redis::RespType::BulkString);
-     getIPAndPort(valid_ip, valid_port);
+     getIPAndPort(valid_ip, valid_port, false);
      ENVOY_LOG(debug, "from the cluster: {}", value->asString());
      const auto lines  = StringUtil::splitToken(value->asString(), "\n");
      unsigned long word = 0;
