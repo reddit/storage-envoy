@@ -434,6 +434,32 @@ SplitRequestPtr ClusterRequest::create(Router& router, Common::Redis::RespValueP
     value.asArray().insert(value.asArray().end(), items.begin(), items.end());
   }
 
+std::string typeString(Common::Redis::RespType respType) {
+  switch (respType) {
+    case Common::Redis::RespType::Null:
+      return "Common::Redis::RespType::Null";
+      break;
+    case Common::Redis::RespType::SimpleString:
+      return "Common::Redis::RespType::SimpleString";
+      break;
+    case Common::Redis::RespType::BulkString:
+      return "Common::Redis::RespType::BulkString";
+      break;
+    case Common::Redis::RespType::Integer:
+      return "Common::Redis::RespType::Integer";
+      break;
+    case Common::Redis::RespType::Error:
+      return "Common::Redis::RespType::Error";
+      break;
+    case Common::Redis::RespType::Array:
+      return "Common::Redis::RespType::Array";
+      break;
+    case Common::Redis::RespType::CompositeArray:
+      return "Common::Redis::RespType::CompositeArray";
+      break;
+  }
+}
+
 void getIPAndPort(Common::Redis::RespValue &valid_ip, Common::Redis::RespValue &valid_port, bool applyQuote){
    valid_ip.type(Common::Redis::RespType::SimpleString);
    valid_port.type(Common::Redis::RespType::Integer);
@@ -461,31 +487,25 @@ void getIPAndPort(Common::Redis::RespValue &valid_ip, Common::Redis::RespValue &
 
 void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32_t index) {
   pending_requests_[index].handle_ = nullptr;
-  ENVOY_LOG(debug, "pending responeses count:{} ", num_pending_responses_);
-
-
   pending_response_->asArray()[index].type(value->type());
   switch (value->type()) {
   case Common::Redis::RespType::Array: {
-  // cluster slots
-   Common::Redis::RespValue valid_ip;
-   Common::Redis::RespValue valid_port;
-   Common::Redis::RespValue result;
-   getIPAndPort(valid_ip, valid_port, true);
-   std::vector<Common::Redis::RespValue> items(value->asArray().size());
-   int i = 0;
-   for( auto &v: value->asArray()){
-     items[i].type(Common::Redis::RespType::Array);
-     Common::Redis::RespValue ipaddr;
-     ipaddr.type(Common::Redis::RespType::BulkString);
-     makeArray(ipaddr,{valid_ip, valid_port, v.asArray()[2].asArray()[2], v.asArray()[2].asArray()[3]});
-     items[i].asArray() = {v.asArray()[0], v.asArray()[1], ipaddr}; 
-     i++;
-   }
-    makeArray(result,items);
-    //ENVOY_LOG(debug,"--> {} {}", (value->asArray()[0]).toString(), ((value->asArray()[0]).asArray()[2]).asArray()[0].toString());
-    pending_response_->asArray().swap(result.asArray());
-    break;
+    // cluster slots
+    Common::Redis::RespValue valid_ip;
+    Common::Redis::RespValue valid_port;
+    getIPAndPort(valid_ip, valid_port, false);
+          for (auto &a: value->asArray()) {
+            if (a.type() == Common::Redis::RespType::Array) {
+              for (auto &b: a.asArray()) {
+                if (b.type() == Common::Redis::RespType::Array) {
+                  b.asArray()[0].asString() = valid_ip.asString();
+                  b.asArray()[1].asInteger() = valid_port.asInteger();
+                }
+              }
+            }
+          }
+        pending_response_ = std::unique_ptr<Common::Redis::RespValue>{std::move(value)};
+        break;
   }
   case Common::Redis::RespType::Integer: 
   case Common::Redis::RespType::SimpleString: 
