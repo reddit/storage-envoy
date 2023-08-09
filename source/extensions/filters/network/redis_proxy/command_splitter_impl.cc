@@ -494,18 +494,18 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
     Common::Redis::RespValue valid_ip;
     Common::Redis::RespValue valid_port;
     getIPAndPort(valid_ip, valid_port, false);
-          for (auto &a: value->asArray()) {
-            if (a.type() == Common::Redis::RespType::Array) {
-              for (auto &b: a.asArray()) {
-                if (b.type() == Common::Redis::RespType::Array) {
-                  b.asArray()[0].asString() = valid_ip.asString();
-                  b.asArray()[1].asInteger() = valid_port.asInteger();
-                }
-              }
+     for (auto &a: value->asArray()) {
+       if (a.type() == Common::Redis::RespType::Array) {
+          for (auto &b: a.asArray()) {
+            if (b.type() == Common::Redis::RespType::Array) {
+                b.asArray()[0].asString() = valid_ip.asString();
+                b.asArray()[1].asInteger() = valid_port.asInteger();
             }
-          }
-        pending_response_ = std::unique_ptr<Common::Redis::RespValue>{std::move(value)};
-        break;
+          } 
+       }
+      }
+    pending_response_ = std::unique_ptr<Common::Redis::RespValue>{std::move(value)};
+    break;
   }
   case Common::Redis::RespType::Integer: 
   case Common::Redis::RespType::SimpleString: 
@@ -523,35 +523,37 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
   // cluster nodes
      Common::Redis::RespValue valid_ip;
      Common::Redis::RespValue valid_port;
-     Common::Redis::RespValue result;
-     result.type(Common::Redis::RespType::BulkString);
+     Common::Redis::RespValuePtr response(new Common::Redis::RespValue());
+     response->type(Common::Redis::RespType::BulkString);
      getIPAndPort(valid_ip, valid_port, false);
      ENVOY_LOG(debug, "from the cluster: {}", value->asString());
+     response->asString() = value->asString();
      const auto lines  = StringUtil::splitToken(value->asString(), "\n");
      unsigned long word = 0;
      std::string str;
-     for (const auto& line : lines) {
-          const auto toks = StringUtil::splitToken(line, " ");
-            for (const auto& tok : toks){
-                if(word == 1){
-                    str.append(valid_ip.asString());
-                    //TODO:The ports are hardcoded; the cluster port is not relevant, but
-                    //the 9091 port is from listener and at the moment there is no way
-                    // to provide that here
-                    str.append(":9091@16379");
-                }else {
-                    str.append(tok);
-                }
-                if(word != toks.size()-1){
-                    str.append(" ");
-                }
-                word++;
-          }
-          str.append("\n");
-          word = 0;
-     }
-    result.asString().swap(str);
-    pending_response_->asArray()[index] = result;
+      for (const auto& line : lines) {
+           const auto toks = StringUtil::splitToken(line, " ");
+             for (const auto& tok : toks){
+                 if(word == 1){
+                     str.append(valid_ip.asString());
+                     //TODO:The ports are hardcoded; the cluster port is not relevant, but
+                     //the 9091 port is from listener and at the moment there is no way
+                     // to provide that here
+                     str.append(":9091@16379");
+                 }else {
+                     str.append(tok);
+                 }
+                 if(word != toks.size()-1){
+                     str.append(" ");
+                 }
+                 word++;
+           }
+           str.append("\n");
+           word = 0;
+      }
+    response->asString() = str;
+    //pending_response_->asArray()[index] = result;
+    pending_response_ = std::unique_ptr<Common::Redis::RespValue>{std::move(response)};
     break;
   }
 
