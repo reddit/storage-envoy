@@ -482,7 +482,7 @@ void getIPAndPort(Common::Redis::RespValue &valid_ip, Common::Redis::RespValue &
         }
       }
       //TODO: The port is provided by the listener -no way atm to expose it here
-      valid_port.asInteger() = 9091;
+      valid_port.asInteger() = 6379;
     }
 }
 
@@ -538,9 +538,9 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
                  if(word == 1){
                      str.append(valid_ip.asString());
                      //TODO:The ports are hardcoded; the cluster port is not relevant, but
-                     //the 9091 port is from listener and at the moment there is no way
+                     //the 6379 port is from listener and at the moment there is no way
                      // to provide that here
-                     str.append(":9091@16379");
+                     str.append(":6379@16379");
                  }else {
                      str.append(tok);
                  }
