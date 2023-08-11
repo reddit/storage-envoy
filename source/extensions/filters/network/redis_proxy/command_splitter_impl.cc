@@ -1,7 +1,14 @@
 #include "source/extensions/filters/network/redis_proxy/command_splitter_impl.h"
 
+#include "source/common/common/utility.h"
 #include "source/common/common/logger.h"
 #include "source/extensions/filters/network/common/redis/supported_commands.h"
+#include "source/common/api/os_sys_calls_impl.h"
+#include "absl/strings/match.h"
+#include "absl/strings/str_join.h"
+#include "absl/strings/str_split.h"
+#include <iostream>
+#include <string>
 
 namespace Envoy {
 namespace Extensions {
@@ -306,6 +313,269 @@ void MGETRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32_t 
   }
 }
 
+SplitRequestPtr InfoRequest::create(Router& router, Common::Redis::RespValuePtr&& incoming_request,
+                                    SplitCallbacks& callbacks, CommandStats& command_stats,
+                                    TimeSource& time_source, bool delay_command_latency) {
+  std::unique_ptr<InfoRequest> request_ptr{
+      new InfoRequest(callbacks, command_stats, time_source, delay_command_latency)};
+
+  Common::Redis::RespValueSharedPtr base_request = std::move(incoming_request);
+  if (base_request->asArray().size() == 1){
+    std::vector<NetworkFilters::Common::Redis::RespValue> infoall(2);
+    infoall[0].type(NetworkFilters::Common::Redis::RespType::BulkString);
+    infoall[0].asString() = "info";
+    infoall[1].type(NetworkFilters::Common::Redis::RespType::BulkString);
+    infoall[1].asString() = "all";
+    base_request->asArray().swap(infoall);
+  }
+  request_ptr->num_pending_responses_ = base_request->asArray().size() - 1;;
+  request_ptr->pending_response_ = std::make_unique<Common::Redis::RespValue>();
+  request_ptr->pending_response_->type(Common::Redis::RespType::Array);
+  std::vector<Common::Redis::RespValue> responses(request_ptr->num_pending_responses_);
+  request_ptr->pending_response_->asArray().swap(responses);
+  request_ptr->pending_requests_.reserve(request_ptr->num_pending_responses_);
+  for (uint32_t i = 1; i < base_request->asArray().size(); i++) {
+    request_ptr->pending_requests_.emplace_back(*request_ptr, i-1);
+    PendingRequest& pending_request = request_ptr->pending_requests_.back();
+    const auto route = router.upstreamPool(base_request->asArray()[i].asString());
+    if (route) {
+      // Create composite array for a single info
+      const Common::Redis::RespValue single_info(
+          base_request, Common::Redis::Utility::InfoRequest::instance(), i, i);
+      pending_request.handle_ =
+          makeFragmentedRequest(route, "info", base_request->asArray()[i].asString(), single_info,
+                                pending_request, callbacks.transaction());
+    }
+    if (!pending_request.handle_) {
+      pending_request.onResponse(Common::Redis::Utility::makeError(Response::get().NoUpstreamHost));
+    }
+  }
+
+  if (request_ptr->num_pending_responses_ > 0) {
+    return request_ptr;
+  }
+
+  return nullptr;
+}
+
+void InfoRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32_t index) {
+  pending_requests_[index].handle_ = nullptr;
+
+  pending_response_->asArray()[index].type(value->type());
+  switch (value->type()) {
+  case Common::Redis::RespType::Array:
+  case Common::Redis::RespType::Integer:
+  case Common::Redis::RespType::SimpleString:
+  case Common::Redis::RespType::CompositeArray: {
+    pending_response_->asArray()[index].type(Common::Redis::RespType::Error);
+    pending_response_->asArray()[index].asString() = Response::get().UpstreamProtocolError;
+    error_count_++;
+    break;
+  }
+  case Common::Redis::RespType::Error: {
+    error_count_++;
+    FALLTHRU;
+  }
+  case Common::Redis::RespType::BulkString: {
+    pending_response_->asArray()[index].asString().swap(value->asString());
+    break;
+  }
+  case Common::Redis::RespType::Null:
+    break;
+  }
+
+  ASSERT(num_pending_responses_ > 0);
+  if (--num_pending_responses_ == 0) {
+    updateStats(error_count_ == 0);
+    ENVOY_LOG(debug, "response: '{}'", pending_response_->toString());
+    callbacks_.onResponse(std::move(pending_response_));
+  }
+}
+
+SplitRequestPtr ClusterRequest::create(Router& router, Common::Redis::RespValuePtr&& incoming_request,
+                                    SplitCallbacks& callbacks, CommandStats& command_stats,
+                                    TimeSource& time_source, bool delay_command_latency) {
+  std::unique_ptr<ClusterRequest> request_ptr{
+      new ClusterRequest(callbacks, command_stats, time_source, delay_command_latency)};
+
+  Common::Redis::RespValueSharedPtr base_request = std::move(incoming_request);
+  request_ptr->num_pending_responses_ = base_request->asArray().size() - 1;;
+  request_ptr->pending_response_ = std::make_unique<Common::Redis::RespValue>();
+  request_ptr->pending_response_->type(Common::Redis::RespType::Array);
+  std::vector<Common::Redis::RespValue> responses(request_ptr->num_pending_responses_);
+  request_ptr->pending_response_->asArray().swap(responses);
+  request_ptr->pending_requests_.reserve(request_ptr->num_pending_responses_);
+  for (uint32_t i = 1; i < base_request->asArray().size(); i++) {
+    request_ptr->pending_requests_.emplace_back(*request_ptr, i-1);
+    PendingRequest& pending_request = request_ptr->pending_requests_.back();
+    const auto route = router.upstreamPool(base_request->asArray()[i].asString());
+    if (route) {
+      // Create composite array for a single info
+      const Common::Redis::RespValue single_info(
+          base_request, Common::Redis::Utility::ClusterRequest::instance(), i, i);
+      pending_request.handle_ =
+          makeFragmentedRequest(route, "cluster", base_request->asArray()[i].asString(), single_info,
+                                pending_request, callbacks.transaction());
+    }
+    if (!pending_request.handle_) {
+      pending_request.onResponse(Common::Redis::Utility::makeError(Response::get().NoUpstreamHost));
+    }
+  }
+
+  if (request_ptr->num_pending_responses_ > 0) {
+    return request_ptr;
+  }
+
+  return nullptr;
+}
+
+ void makeArray(Common::Redis::RespValue& value, const std::vector<Common::Redis::RespValue> items) {
+    value.type(Common::Redis::RespType::Array);
+    value.asArray().insert(value.asArray().end(), items.begin(), items.end());
+  }
+
+std::string typeString(Common::Redis::RespType respType) {
+  switch (respType) {
+    case Common::Redis::RespType::Null:
+      return "Common::Redis::RespType::Null";
+      break;
+    case Common::Redis::RespType::SimpleString:
+      return "Common::Redis::RespType::SimpleString";
+      break;
+    case Common::Redis::RespType::BulkString:
+      return "Common::Redis::RespType::BulkString";
+      break;
+    case Common::Redis::RespType::Integer:
+      return "Common::Redis::RespType::Integer";
+      break;
+    case Common::Redis::RespType::Error:
+      return "Common::Redis::RespType::Error";
+      break;
+    case Common::Redis::RespType::Array:
+      return "Common::Redis::RespType::Array";
+      break;
+    case Common::Redis::RespType::CompositeArray:
+      return "Common::Redis::RespType::CompositeArray";
+      break;
+  }
+  return "";
+}
+
+void getIPAndPort(Common::Redis::RespValue &valid_ip, Common::Redis::RespValue &valid_port, bool applyQuote){
+   valid_ip.type(Common::Redis::RespType::SimpleString);
+   valid_port.type(Common::Redis::RespType::Integer);
+      // Get the IP address and port that envoy is listening on
+    Api::InterfaceAddressVector interface_addresses{};
+    Api::OsSysCallsSingleton::get().getifaddrs(interface_addresses);
+    for (auto &ia : interface_addresses) {
+      // TODO: This is suspect -narrows to an interface and INET4
+      if(strncmp(ia.interface_name_.c_str(),"en",strlen("en")) == 0 && ia.interface_addr_->sockAddr()->sa_family == AF_INET ){
+        struct sockaddr_in sa;
+        // TODO: Check the error status and return val
+        inet_pton(AF_INET, ia.interface_addr_.get()->asString().c_str(), &(sa.sin_addr));
+        if(ia.interface_addr_->ip()->isUnicastAddress()){
+        if(applyQuote){
+          valid_ip.asString() = "\""+ia.interface_addr_->ip()->addressAsString() +"\"";
+        }else{
+          valid_ip.asString() = ia.interface_addr_->ip()->addressAsString();
+         }
+        }
+      }
+      //TODO: The port is provided by the listener -no way atm to expose it here
+      valid_port.asInteger() = 6379;
+    }
+}
+
+void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32_t index) {
+  pending_requests_[index].handle_ = nullptr;
+  pending_response_->asArray()[index].type(value->type());
+  switch (value->type()) {
+  case Common::Redis::RespType::Array: {
+    // cluster slots
+    Common::Redis::RespValue valid_ip;
+    Common::Redis::RespValue valid_port;
+    getIPAndPort(valid_ip, valid_port, false);
+     for (auto &a: value->asArray()) {
+       if (a.type() == Common::Redis::RespType::Array) {
+          for (auto &b: a.asArray()) {
+            if (b.type() == Common::Redis::RespType::Array) {
+                b.asArray()[0].asString() = valid_ip.asString();
+                b.asArray()[1].asInteger() = valid_port.asInteger();
+            }
+          }
+       }
+      }
+    pending_response_ = std::unique_ptr<Common::Redis::RespValue>{std::move(value)};
+    break;
+  }
+  case Common::Redis::RespType::Integer:
+  case Common::Redis::RespType::SimpleString:
+  case Common::Redis::RespType::CompositeArray: {
+    pending_response_->asArray()[index].type(Common::Redis::RespType::Error);
+    pending_response_->asArray()[index].asString() = Response::get().UpstreamProtocolError;
+    error_count_++;
+    break;
+  }
+  case Common::Redis::RespType::Error: {
+    error_count_++;
+    FALLTHRU;
+  }
+  case Common::Redis::RespType::BulkString: {
+  // cluster nodes
+     Common::Redis::RespValue valid_ip;
+     Common::Redis::RespValue valid_port;
+     Common::Redis::RespValuePtr response(new Common::Redis::RespValue());
+     response->type(Common::Redis::RespType::BulkString);
+     getIPAndPort(valid_ip, valid_port, false);
+     ENVOY_LOG(debug, "from the cluster: {}", value->asString());
+     response->asString() = value->asString();
+     const auto lines  = StringUtil::splitToken(value->asString(), "\n");
+     unsigned long word = 0;
+     std::string str;
+      for (const auto& line : lines) {
+           const auto toks = StringUtil::splitToken(line, " ");
+             for (const auto& tok : toks){
+                 if(word == 1){
+                     str.append(valid_ip.asString());
+                     //TODO:The ports are hardcoded; the cluster port is not relevant, but
+                     //the 6379 port is from listener and at the moment there is no way
+                     // to provide that here
+                     str.append(":6379@16379");
+                 }else {
+                     str.append(tok);
+                 }
+                 if(word != toks.size()-1){
+                     str.append(" ");
+                 }
+                 word++;
+           }
+           str.append("\n");
+           word = 0;
+      }
+    response->asString() = str;
+    //pending_response_->asArray()[index] = result;
+    pending_response_ = std::unique_ptr<Common::Redis::RespValue>{std::move(response)};
+    break;
+  }
+
+//    case Common::Redis::RespType::BulkString: {
+//        ENVOY_LOG(debug, "HERE");
+//      //pending_response_->asArray()[index].swap(value);
+//      break;
+//    }
+  case Common::Redis::RespType::Null: {
+    break;
+  }
+  }
+
+  ASSERT(num_pending_responses_ > 0);
+  if (--num_pending_responses_ == 0) {
+    updateStats(error_count_ == 0);
+    ENVOY_LOG(debug, "response: '{}'", pending_response_->toString());
+    callbacks_.onResponse(std::move(pending_response_));
+  }
+}
+
 SplitRequestPtr MSETRequest::create(Router& router, Common::Redis::RespValuePtr&& incoming_request,
                                     SplitCallbacks& callbacks, CommandStats& command_stats,
                                     TimeSource& time_source, bool delay_command_latency) {
@@ -549,7 +819,8 @@ InstanceImpl::InstanceImpl(RouterPtr&& router, Stats::Scope& scope, const std::s
                            TimeSource& time_source, bool latency_in_micros,
                            Common::Redis::FaultManagerPtr&& fault_manager)
     : router_(std::move(router)), simple_command_handler_(*router_),
-      eval_command_handler_(*router_), mget_handler_(*router_), mset_handler_(*router_),
+      eval_command_handler_(*router_), mget_handler_(*router_), info_handler_(*router_), cluster_handler_(*router_),
+      mset_handler_(*router_),
       split_keys_sum_result_handler_(*router_),
       transaction_handler_(*router_), stats_{ALL_COMMAND_SPLITTER_STATS(
                                           POOL_COUNTER_PREFIX(scope, stat_prefix + "splitter."))},
@@ -569,6 +840,13 @@ InstanceImpl::InstanceImpl(RouterPtr&& router, Stats::Scope& scope, const std::s
 
   addHandler(scope, stat_prefix, Common::Redis::SupportedCommands::mget(), latency_in_micros,
              mget_handler_);
+
+ addHandler(scope, stat_prefix, Common::Redis::SupportedCommands::info(), latency_in_micros,
+     info_handler_);
+
+  addHandler(scope, stat_prefix, Common::Redis::SupportedCommands::cluster(), latency_in_micros,
+    cluster_handler_);
+
 
   addHandler(scope, stat_prefix, Common::Redis::SupportedCommands::mset(), latency_in_micros,
              mset_handler_);
@@ -628,7 +906,7 @@ SplitRequestPtr InstanceImpl::makeRequest(Common::Redis::RespValuePtr&& request,
     return nullptr;
   }
 
-  if (request->asArray().size() < 2 &&
+  if (request->asArray().size() < 2 && command_name != Common::Redis::SupportedCommands::info() &&
       Common::Redis::SupportedCommands::transactionCommands().count(command_name) == 0) {
     // Commands other than PING and transaction commands all have at least two arguments.
     onInvalidRequest(callbacks);

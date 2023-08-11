@@ -76,6 +76,17 @@ struct SupportedCommands {
   static const std::string& ping() { CONSTRUCT_ON_FIRST_USE(std::string, "ping"); }
 
   /**
+     * @return info command
+     */
+    static const std::string& info() { CONSTRUCT_ON_FIRST_USE(std::string, "info"); }
+
+    /**
+     * @return cluster command
+    */
+    static const std::string& cluster() { CONSTRUCT_ON_FIRST_USE(std::string, "cluster"); }
+
+
+  /**
    * @return quit command
    */
   static const std::string& quit() { CONSTRUCT_ON_FIRST_USE(std::string, "quit"); }
