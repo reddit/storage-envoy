@@ -469,7 +469,7 @@ void getIPAndPort(Common::Redis::RespValue &valid_ip, Common::Redis::RespValue &
     Api::OsSysCallsSingleton::get().getifaddrs(interface_addresses);
     for (auto &ia : interface_addresses) {
       // TODO: This is suspect -narrows to an interface and INET4
-      if(strcmp(ia.interface_name_.c_str(),"en0") == 0 && ia.interface_addr_->sockAddr()->sa_family == AF_INET ){
+      if(strncmp(ia.interface_name_.c_str(),"en",strlen("en")) == 0 && ia.interface_addr_->sockAddr()->sa_family == AF_INET ){
         struct sockaddr_in sa;
         // TODO: Check the error status and return val
         inet_pton(AF_INET, ia.interface_addr_.get()->asString().c_str(), &(sa.sin_addr));
