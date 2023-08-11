@@ -458,6 +458,7 @@ std::string typeString(Common::Redis::RespType respType) {
       return "Common::Redis::RespType::CompositeArray";
       break;
   }
+  return "";
 }
 
 void getIPAndPort(Common::Redis::RespValue &valid_ip, Common::Redis::RespValue &valid_port, bool applyQuote){
