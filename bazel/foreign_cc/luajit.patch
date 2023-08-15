@@ -148,7 +148,7 @@ index 00000000..1201542c
 +    src_dir = os.path.dirname(os.path.realpath(__file__))
 +    shutil.copytree(src_dir, os.path.basename(src_dir))
 +    os.chdir(os.path.basename(src_dir))
-+
++    os.environ["MAKE"] = "/usr/bin/make"
 +    os.environ["MACOSX_DEPLOYMENT_TARGET"] = "10.8"
 +    os.environ["DEFAULT_CC"] = os.environ.get("CC", "")
 +    os.environ["TARGET_CFLAGS"] = os.environ.get("CFLAGS", "") + " -fno-function-sections -fno-data-sections"
