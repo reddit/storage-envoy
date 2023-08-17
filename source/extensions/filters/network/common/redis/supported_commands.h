@@ -86,7 +86,7 @@ struct SupportedCommands {
   static const std::string& cluster() { CONSTRUCT_ON_FIRST_USE(std::string, "cluster"); }
 
   /**
-   * @return cluster command
+   * @return command command
   */
    static const std::string& command() { CONSTRUCT_ON_FIRST_USE(std::string, "command"); }
 
