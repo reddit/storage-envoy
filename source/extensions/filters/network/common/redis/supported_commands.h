@@ -86,6 +86,11 @@ struct SupportedCommands {
   static const std::string& cluster() { CONSTRUCT_ON_FIRST_USE(std::string, "cluster"); }
 
   /**
+   * @return cluster command
+  */
+   static const std::string& command() { CONSTRUCT_ON_FIRST_USE(std::string, "command"); }
+
+  /**
    * @return time command
    */
   static const std::string& time() { CONSTRUCT_ON_FIRST_USE(std::string, "time"); }

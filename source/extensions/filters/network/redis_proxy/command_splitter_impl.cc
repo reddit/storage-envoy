@@ -461,7 +461,7 @@ std::string typeString(Common::Redis::RespType respType) {
   return "";
 }
 
-void getIPAndPort(Common::Redis::RespValue &valid_ip, Common::Redis::RespValue &valid_port, bool applyQuote){
+void getIPAndPort(Common::Redis::RespValue &valid_ip, Common::Redis::RespValue &valid_port){
    valid_ip.type(Common::Redis::RespType::SimpleString);
    valid_port.type(Common::Redis::RespType::Integer);
       // Get the IP address and port that envoy is listening on
@@ -474,14 +474,9 @@ void getIPAndPort(Common::Redis::RespValue &valid_ip, Common::Redis::RespValue &
         // TODO: Check the error status and return val
         inet_pton(AF_INET, ia.interface_addr_.get()->asString().c_str(), &(sa.sin_addr));
         if(ia.interface_addr_->ip()->isUnicastAddress()){
-        if(applyQuote){
-          valid_ip.asString() = "\""+ia.interface_addr_->ip()->addressAsString() +"\"";
-        }else{
           valid_ip.asString() = ia.interface_addr_->ip()->addressAsString();
-         }
         }
       }
-      //TODO: The port is provided by the listener -no way atm to expose it here
       valid_port.asInteger() = 6379;
     }
 }
@@ -494,7 +489,7 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
     // cluster slots
     Common::Redis::RespValue valid_ip;
     Common::Redis::RespValue valid_port;
-    getIPAndPort(valid_ip, valid_port, false);
+    getIPAndPort(valid_ip, valid_port);
      for (auto &a: value->asArray()) {
        if (a.type() == Common::Redis::RespType::Array) {
           for (auto &b: a.asArray()) {
@@ -526,7 +521,7 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
      Common::Redis::RespValue valid_port;
      Common::Redis::RespValuePtr response(new Common::Redis::RespValue());
      response->type(Common::Redis::RespType::BulkString);
-     getIPAndPort(valid_ip, valid_port, false);
+     getIPAndPort(valid_ip, valid_port);
      ENVOY_LOG(debug, "from the cluster: {}", value->asString());
      response->asString() = value->asString();
      const auto lines  = StringUtil::splitToken(value->asString(), "\n");
@@ -553,16 +548,9 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
            word = 0;
       }
     response->asString() = str;
-    //pending_response_->asArray()[index] = result;
     pending_response_ = std::unique_ptr<Common::Redis::RespValue>{std::move(response)};
     break;
   }
-
-//    case Common::Redis::RespType::BulkString: {
-//        ENVOY_LOG(debug, "HERE");
-//      //pending_response_->asArray()[index].swap(value);
-//      break;
-//    }
   case Common::Redis::RespType::Null: {
     break;
   }
@@ -572,6 +560,55 @@ void ClusterRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32
   if (--num_pending_responses_ == 0) {
     updateStats(error_count_ == 0);
     ENVOY_LOG(debug, "response: '{}'", pending_response_->toString());
+    callbacks_.onResponse(std::move(pending_response_));
+  }
+}
+
+
+SplitRequestPtr CommandRequest::create(Router& router, Common::Redis::RespValuePtr&& incoming_request,
+                                    SplitCallbacks& callbacks, CommandStats& command_stats,
+                                    TimeSource& time_source, bool delay_command_latency) {
+  std::unique_ptr<CommandRequest> request_ptr{
+      new CommandRequest(callbacks, command_stats, time_source, delay_command_latency)};
+
+  Common::Redis::RespValueSharedPtr base_request = std::move(incoming_request);
+  request_ptr->num_pending_responses_ = base_request->asArray().size() - 1;;
+  request_ptr->pending_response_ = std::make_unique<Common::Redis::RespValue>();
+  request_ptr->pending_response_->type(Common::Redis::RespType::Array);
+  std::vector<Common::Redis::RespValue> responses(request_ptr->num_pending_responses_);
+  request_ptr->pending_response_->asArray().swap(responses);
+  request_ptr->pending_requests_.reserve(request_ptr->num_pending_responses_);
+  for (uint32_t i = 1; i < base_request->asArray().size(); i++) {
+    request_ptr->pending_requests_.emplace_back(*request_ptr, i-1);
+    PendingRequest& pending_request = request_ptr->pending_requests_.back();
+    const auto route = router.upstreamPool(base_request->asArray()[i].asString());
+    if (route) {
+      // Create composite array for a single info
+      const Common::Redis::RespValue single_command(
+          base_request, Common::Redis::Utility::CommandRequest::instance(), i, i);
+      pending_request.handle_ =
+          makeFragmentedRequest(route, "command", base_request->asArray()[i].asString(), single_command,
+                                pending_request, callbacks.transaction());
+    }
+    if (!pending_request.handle_) {
+      pending_request.onResponse(Common::Redis::Utility::makeError(Response::get().NoUpstreamHost));
+    }
+  }
+
+  if (request_ptr->num_pending_responses_ > 0) {
+    return request_ptr;
+  }
+
+  return nullptr;
+}
+
+void CommandRequest::onChildResponse(Common::Redis::RespValuePtr&& value, uint32_t index) {
+  pending_requests_[index].handle_ = nullptr;
+  pending_response_->asArray()[index].type(value->type());
+  pending_response_ = std::unique_ptr<Common::Redis::RespValue>{std::move(value)};
+  ASSERT(num_pending_responses_ > 0);
+  if (--num_pending_responses_ == 0) {
+    updateStats(error_count_ == 0);
     callbacks_.onResponse(std::move(pending_response_));
   }
 }
@@ -819,8 +856,8 @@ InstanceImpl::InstanceImpl(RouterPtr&& router, Stats::Scope& scope, const std::s
                            TimeSource& time_source, bool latency_in_micros,
                            Common::Redis::FaultManagerPtr&& fault_manager)
     : router_(std::move(router)), simple_command_handler_(*router_),
-      eval_command_handler_(*router_), mget_handler_(*router_), info_handler_(*router_), cluster_handler_(*router_), mset_handler_(*router_),
-      split_keys_sum_result_handler_(*router_),
+      eval_command_handler_(*router_), mget_handler_(*router_), info_handler_(*router_), cluster_handler_(*router_), command_handler_(*router_),
+      mset_handler_(*router_), split_keys_sum_result_handler_(*router_),
       transaction_handler_(*router_), stats_{ALL_COMMAND_SPLITTER_STATS(
                                           POOL_COUNTER_PREFIX(scope, stat_prefix + "splitter."))},
       time_source_(time_source), fault_manager_(std::move(fault_manager)) {
@@ -845,6 +882,9 @@ InstanceImpl::InstanceImpl(RouterPtr&& router, Stats::Scope& scope, const std::s
 
   addHandler(scope, stat_prefix, Common::Redis::SupportedCommands::cluster(), latency_in_micros,
     cluster_handler_);
+
+  addHandler(scope, stat_prefix, Common::Redis::SupportedCommands::command(), latency_in_micros,
+    command_handler_);
 
   addHandler(scope, stat_prefix, Common::Redis::SupportedCommands::mset(), latency_in_micros,
              mset_handler_);

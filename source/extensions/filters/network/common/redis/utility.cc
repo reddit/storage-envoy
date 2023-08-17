@@ -105,6 +105,16 @@ const ClusterRequest& ClusterRequest::instance() {
   return *instance;
 }
 
+CommandRequest::CommandRequest() {
+  type(RespType::BulkString);
+  asString() = "command";
+}
+
+const CommandRequest& CommandRequest::instance() {
+    static const CommandRequest* instance = new CommandRequest{};
+    return *instance;
+}
+
 } // namespace Utility
 } // namespace Redis
 } // namespace Common

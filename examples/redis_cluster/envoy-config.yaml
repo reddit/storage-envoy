@@ -1,0 +1,29 @@
+listener:
+  name: redis_listener
+  address: 0.0.0.0
+  port: 6379
+  stat_prefix: egress_redis
+  traffic_percent_for_mirror: 100 #0-100 percent
+  exclude_read_commands: false
+  op_timeout: 1s
+  read_policy: ANY
+  enable_redirection: true
+  enable_hashtagging: true
+  enable_command_stats: true
+  buffer_flush_timeout: 1000ns #nanos
+  max_buffer_size_before_flush: 1024
+  exclude_reads_from_replication: true
+primary_cluster:
+  name: redis_cluster_1
+  connect_time_out: 5s
+  cluster_refresh_rate: 2s
+  lb_policy: CLUSTER_PROVIDED
+  address: 127.0.0.1
+  port: 7000
+mirror_cluster:
+  name: redis_cluster_2
+  connect_time_out: 5s
+  cluster_refresh_rate: 2s
+  lb_policy: CLUSTER_PROVIDED
+  address: 127.0.0.1
+  port: 7003

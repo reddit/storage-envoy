@@ -49,6 +49,13 @@ class ClusterRequest : public Redis::RespValue {
   static const ClusterRequest& instance(); 
 };
 
+
+class CommandRequest : public Redis::RespValue {
+ public:
+  CommandRequest();
+  static const CommandRequest& instance();
+};
+
 class SetRequest : public Redis::RespValue {
 public:
   SetRequest();
