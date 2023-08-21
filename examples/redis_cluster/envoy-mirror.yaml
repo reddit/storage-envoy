@@ -26,6 +26,9 @@ static_resources:
                 prefix_routes:
                   catch_all_route:
                     cluster: redis_cluster_1
+                    request_mirror_policy:
+                      cluster: redis_cluster_2
+                      exclude_read_commands: True
   clusters:
     - name: redis_cluster_1
       cluster_type:
@@ -46,3 +49,22 @@ static_resources:
                     socket_address:
                       address: 127.0.0.1
                       port_value: 7000
+    - name: redis_cluster_2
+      cluster_type:
+        name: envoy.clusters.redis
+        # https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/clusters/redis/v3/redis_cluster.proto#extensions-clusters-redis-v3-redisclusterconfig
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.clusters.redis.v3.RedisClusterConfig
+          failure_refresh_threshold: 10
+      dns_lookup_family: V4_ONLY
+      close_connections_on_host_health_failure: true
+      lb_policy: CLUSTER_PROVIDED
+      load_assignment:
+        cluster_name: redis_cluster
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: 127.0.0.1
+                      port_value: 7003
