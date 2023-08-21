@@ -289,7 +289,7 @@ private:
 };
 
 
-class CommandRequest : public FragmentedRequest {
+class CommandRequest : public SingleServerRequest {
 public:
   static SplitRequestPtr create(Router& router, Common::Redis::RespValuePtr&& incoming_request,
                                 SplitCallbacks& callbacks, CommandStats& command_stats,
@@ -298,10 +298,36 @@ public:
 private:
   CommandRequest(SplitCallbacks& callbacks, CommandStats& command_stats, TimeSource& time_source,
               bool delay_command_latency)
-      : FragmentedRequest(callbacks, command_stats, time_source, delay_command_latency) {}
+      : SingleServerRequest(callbacks, command_stats, time_source, delay_command_latency) {}
 
-  // RedisProxy::CommandSplitter::FragmentedRequest
-  void onChildResponse(Common::Redis::RespValuePtr&& value, uint32_t index) override;
+};
+
+
+class HelloRequest : public SingleServerRequest {
+public:
+  static SplitRequestPtr create(Router& router, Common::Redis::RespValuePtr&& incoming_request,
+                                SplitCallbacks& callbacks, CommandStats& command_stats,
+                                TimeSource& time_source, bool delay_command_latency);
+
+private:
+  HelloRequest(SplitCallbacks& callbacks, CommandStats& command_stats, TimeSource& time_source,
+              bool delay_command_latency)
+      : SingleServerRequest(callbacks, command_stats, time_source, delay_command_latency) {}
+
+};
+
+
+class ClientRequest : public SingleServerRequest {
+public:
+  static SplitRequestPtr create(Router& router, Common::Redis::RespValuePtr&& incoming_request,
+                                SplitCallbacks& callbacks, CommandStats& command_stats,
+                                TimeSource& time_source, bool delay_command_latency);
+
+private:
+  ClientRequest(SplitCallbacks& callbacks, CommandStats& command_stats, TimeSource& time_source,
+              bool delay_command_latency)
+      : SingleServerRequest(callbacks, command_stats, time_source, delay_command_latency) {}
+
 };
 
 
@@ -432,6 +458,8 @@ private:
   CommandHandlerFactory<InfoRequest> info_handler_;
   CommandHandlerFactory<ClusterRequest> cluster_handler_;
   CommandHandlerFactory<CommandRequest> command_handler_;
+  CommandHandlerFactory<HelloRequest> hello_handler_;
+  CommandHandlerFactory<ClientRequest> client_handler_;
   CommandHandlerFactory<MSETRequest> mset_handler_;
   CommandHandlerFactory<SplitKeysSumResultRequest> split_keys_sum_result_handler_;
   CommandHandlerFactory<TransactionRequest> transaction_handler_;

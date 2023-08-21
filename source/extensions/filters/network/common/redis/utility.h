@@ -56,6 +56,18 @@ class CommandRequest : public Redis::RespValue {
   static const CommandRequest& instance();
 };
 
+class HelloRequest : public Redis::RespValue {
+ public:
+  HelloRequest();
+  static const HelloRequest& instance();
+};
+
+class ClientRequest : public Redis::RespValue {
+ public:
+  ClientRequest();
+  static const ClientRequest& instance();
+};
+
 class SetRequest : public Redis::RespValue {
 public:
   SetRequest();

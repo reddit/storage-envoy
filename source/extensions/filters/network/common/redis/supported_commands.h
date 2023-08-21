@@ -91,6 +91,16 @@ struct SupportedCommands {
    static const std::string& command() { CONSTRUCT_ON_FIRST_USE(std::string, "command"); }
 
   /**
+   * @return hello command
+  */
+  static const std::string& hello() { CONSTRUCT_ON_FIRST_USE(std::string, "hello"); }
+
+  /**
+   * @return client command
+  */
+  static const std::string& client() { CONSTRUCT_ON_FIRST_USE(std::string, "client"); }
+
+  /**
    * @return time command
    */
   static const std::string& time() { CONSTRUCT_ON_FIRST_USE(std::string, "time"); }
